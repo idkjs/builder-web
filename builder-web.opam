@@ -45,6 +45,7 @@ depends: [
   "uri"
   "fmt"
   "omd"
+  "tar"
 ]
 
 synopsis: "Web interface for builder"

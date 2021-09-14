@@ -216,6 +216,23 @@ let add_routes datadir =
     Dream.respond ~headers data |> Lwt_result.ok
   in
 
+  let job_build_tar req =
+    let datadir = Dream.global datadir_global req in
+    let _job_name = Dream.param "job" req
+    and build = Dream.param "build" req in
+    get_uuid build >>= fun build ->
+    Dream.sql req (Model.build build)
+    |> if_error "Error getting build" >>= fun (build_id, build) ->
+    Dream.sql req (Model.build_artifacts build_id)
+    |> if_error "Error getting artifacts" >>= fun artifacts ->
+    Ptime.diff build.finish Ptime.epoch |> Ptime.Span.to_int_s
+    |> Option.to_result ~none:(`Msg "bad finish time") |> Result.map Int64.of_int
+    |> Lwt.return |> if_error "Internal server error" >>= fun finish ->
+    Dream.stream ~headers:["Content-Type", "application/x-tar"]
+      (Dream_tar.tar_response datadir finish artifacts)
+    |> Lwt_result.ok
+  in
+
   let upload req =
     let* body = Dream.body req in
     Builder.Asn.exec_of_cs (Cstruct.of_string body) |> Lwt.return
@@ -341,6 +358,7 @@ let add_routes datadir =
     Dream.get "/job/:job/build/:build/main-binary" (w redirect_main_binary);
     Dream.get "/job/:job/build/:build/script" (w (job_build_static_file `Script));
     Dream.get "/job/:job/build/:build/console" (w (job_build_static_file `Console));
+    Dream.get "/job/:job/build/:build/all.tar" (w job_build_tar);
     Dream.get "/hash" (w hash);
     Dream.get "/compare/:build_left/:build_right/opam-switch" (w compare_opam);
     Dream.post "/upload" (Authorization.authenticate (w upload));
